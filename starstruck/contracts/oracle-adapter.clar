@@ -1,5 +1,5 @@
 ;; oracle-adapter.clar
-;; 
+;;
 ;; StarStacks Oracle Adapter
 ;;
 ;; Wraps the Pyth Network pyth-oracle-v4 on-chain price feeds.
@@ -12,15 +12,21 @@
 ;; e.g.  u6500000000000 = $65,000.00000000
 ;;
 ;; Staleness: any price older than MAX-PRICE-AGE-BLOCKS Bitcoin blocks is
-;; rejected for liquidation and settlement.  Bitcoin blocks  10 min each.
-;; 
+;; rejected for liquidation and settlement.  Bitcoin blocks ~10 min each.
+;;
 
-;;  Constants 
+;;  Constants
 
 ;; Pyth BTC/USD price feed ID (mainnet).  32-byte buffer.
 ;; Source: https://pyth.network/developers/price-feed-ids
 (define-constant BTC-USD-FEED-ID
   0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43)
+
+;; Pyth contract addresses (mainnet)
+(define-constant PYTH-ORACLE 'SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.pyth-oracle-v4)
+(define-constant PYTH-STORAGE 'SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.pyth-storage-v4)
+(define-constant PYTH-DECODER 'SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.pyth-pnau-decoder-v3)
+(define-constant WORMHOLE-CORE 'SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.wormhole-core-v4)
 
 ;; Price precision: all returned prices are multiplied by this factor.
 (define-constant PRICE-SCALE u100000000) ;; 10^8
@@ -29,30 +35,30 @@
 ;; Liquidation calls will reject prices older than this.
 (define-constant MAX-PRICE-AGE-BLOCKS u5)
 
-;; Minimum sane BTC price ($1,000)  sanity check against oracle manipulation.
+;; Minimum sane BTC price ($1,000) - sanity check against oracle manipulation.
 (define-constant MIN-SANE-BTC-PRICE u100000000000) ;; $1,000 * 10^8
 
-;; Maximum sane BTC price ($10,000,000)  sanity check.
+;; Maximum sane BTC price ($10,000,000) - sanity check.
 (define-constant MAX-SANE-BTC-PRICE u1000000000000000) ;; $10M * 10^8
 
-;;  Error codes 
+;;  Error codes
 (define-constant ERR-UNAUTHORIZED       (err u2000))
 (define-constant ERR-PRICE-STALE        (err u2001))
 (define-constant ERR-PRICE-UNAVAILABLE  (err u2002))
 (define-constant ERR-PRICE-INSANE       (err u2003))
-(define-constant ERR-FEED-UPDATE-FAILED (err u2004))
+(define-constant ERR-INVALID-VAA        (err u2005))
 
-;;  Storage 
+;;  Storage
 
 ;; Cached price snapshot (updated by anyone via update-price-feeds).
 ;; We cache locally so other contracts don't need to know Pyth internals.
-(define-data-var cached-btc-price      uint u0)
+(define-data-var cached-btc-price uint u0)
 (define-data-var cached-price-btc-block uint u0) ;; burn-block-height at update
 
 ;; Admin can override max staleness for testing.
 (define-data-var max-price-age-override (optional uint) none)
 
-;;  Internal helpers 
+;;  Internal helpers
 
 (define-private (get-max-age)
   (default-to MAX-PRICE-AGE-BLOCKS (var-get max-price-age-override))
@@ -66,40 +72,67 @@
   )
 )
 
-;;  Price update (permissionless) 
+;;  Price update from Pyth VAA (permissionless)
 
 ;; Anyone can push a fresh BTC/USD price into the adapter by providing the
-;; raw Pyth price and its publish Bitcoin block height.
-;; In production this is called by a keeper bot that relays Pyth VAAs.
+;; raw Pyth VAA. Keepers relay Pyth VAAs from the Wormhole network.
 ;;
 ;; Parameters:
-;;   price       BTC/USD price scaled by PRICE-SCALE (10^8)
-;;   btc-block   Bitcoin block height at which Pyth published this price
-(define-public (update-btc-price (price uint) (btc-block uint))
+;;   price-feed-bytes  Raw VAA bytes from Pyth/Hermes
+(define-public (update-price-feeds (price-feed-bytes (buff 8192)))
   (begin
-    ;; Price must be within sane bounds.
-    (asserts! (validate-price price) ERR-PRICE-INSANE)
-    ;; Publish block must not be in the future.
-    (asserts! (<= btc-block burn-block-height) ERR-PRICE-UNAVAILABLE)
-    ;; Only accept newer-or-equal updates (monotonic).
-    (asserts!
-      (>= btc-block (var-get cached-price-btc-block))
-      ERR-PRICE-STALE)
+    ;; Verify and update the price feed via Pyth
+    ;; This will revert if the VAA is invalid or outdated
+    (try! (contract-call? 
+      PYTH-ORACLE 
+      verify-and-update-price-feeds 
+      price-feed-bytes
+      {
+        pyth-storage-contract: PYTH-STORAGE,
+        pyth-decoder-contract: PYTH-DECODER,
+        wormhole-core-contract: WORMHOLE-CORE
+      }
+    ))
+    
+    ;; Get the updated price from Pyth storage
+    (let (
+      (price-data (unwrap! 
+        (contract-call? PYTH-ORACLE get-price BTC-USD-FEED-ID PYTH-STORAGE)
+        ERR-PRICE-UNAVAILABLE
+      ))
+      (price (get price price-data))
+      (expo (get expo price-data))
+      (publish-time (get publish-time price-data))
+    )
+      ;; Convert from Pyth fixed-point format to our scale (10^8)
+      ;; Pyth BTC/USD uses expo=-8, so pyth-scale = 10^8 which equals PRICE-SCALE
+      ;; This means adjusted-price equals the raw Pyth price
+      (let (
+        (pyth-scale u100000000) ;; 10^8 for BTC/USD (expo = -8)
+        (adjusted-price (to-uint price))   ;; Convert Pyth int to uint
+        (btc-block publish-time)   ;; Already uint from Pyth
+      )
+        ;; Validate the price
+        (asserts! (validate-price adjusted-price) ERR-PRICE-INSANE)
+        
+        ;; Update cached price
+        (var-set cached-btc-price adjusted-price)
+        (var-set cached-price-btc-block btc-block)
 
-    (var-set cached-btc-price price)
-    (var-set cached-price-btc-block btc-block)
-
-    (print {
-      event:     "price-updated",
-      asset:     "BTC/USD",
-      price:     price,
-      btc-block: btc-block
-    })
-    (ok price)
+        (print {
+          event:     "price-updated",
+          asset:     "BTC/USD",
+          price:     adjusted-price,
+          btc-block: btc-block,
+          source:    "pyth"
+        })
+        (ok adjusted-price)
+      )
+    )
   )
 )
 
-;;  Safe price read (used by liquidation & settlement) 
+;;  Safe price read (used by liquidation & settlement)
 
 ;; Returns the current BTC/USD price only if it is fresh enough.
 ;; Liquidation and settlement MUST use this.
@@ -110,13 +143,13 @@
     (age       (- burn-block-height updated))
   )
     (asserts! (> price u0)             ERR-PRICE-UNAVAILABLE)
-    (asserts! (<= age (get-max-age))   ERR-PRICE-STALE)
-    (asserts! (validate-price price)   ERR-PRICE-INSANE)
+    (asserts! (<= age (get-max-age))  ERR-PRICE-STALE)
+    (asserts! (validate-price price)  ERR-PRICE-INSANE)
     (ok price)
   )
 )
 
-;;  Unsafe price read (used by UI / non-critical reads) 
+;;  Unsafe price read (used by UI / non-critical reads)
 
 ;; Returns the latest cached price regardless of staleness.
 ;; DO NOT use for liquidation or settlement logic.
@@ -127,7 +160,7 @@
   )
 )
 
-;;  Price age query 
+;;  Price age query
 
 (define-read-only (get-price-age-blocks)
   (- burn-block-height (var-get cached-price-btc-block))
@@ -137,7 +170,7 @@
   (<= (get-price-age-blocks) (get-max-age))
 )
 
-;;  Admin: override staleness threshold (governance proposal only) 
+;;  Admin: override staleness threshold (governance proposal only)
 
 (define-public (set-max-price-age (new-max (optional uint)))
   (begin
@@ -151,9 +184,11 @@
   )
 )
 
-;;  Constants and metadata reads 
+;;  Constants and metadata reads
 
-(define-read-only (get-price-scale)     PRICE-SCALE)
-(define-read-only (get-feed-id)         BTC-USD-FEED-ID)
-(define-read-only (get-cached-price)    (var-get cached-btc-price))
-(define-read-only (get-cached-block)    (var-get cached-price-btc-block))
+(define-read-only (get-price-scale) PRICE-SCALE)
+(define-read-only (get-feed-id) BTC-USD-FEED-ID)
+(define-read-only (get-cached-price) (var-get cached-btc-price))
+(define-read-only (get-cached-block) (var-get cached-price-btc-block))
+(define-read-only (get-pyth-oracle) PYTH-ORACLE)
+(define-read-only (get-pyth-storage) PYTH-STORAGE)

@@ -1,5 +1,5 @@
 ;; collateral-vault.clar
-;; 
+;;
 ;; StarStacks Collateral Vault
 ;;
 ;; Custodies all sBTC collateral posted by traders.
@@ -7,20 +7,19 @@
 ;;   1. Accept / release collateral on behalf of perpetual-engine.
 ;;   2. Track each depositor's share so Dual Stacking rewards are
 ;;      distributed proportionally when the vault receives sBTC yield.
-;;   3. Expose an sBTC balance that the Dual Stacking contract can snapshot
-;;      (this address IS enrolled in dual-stacking-v2 as a DeFi protocol).
+;;   3. The vault's sBTC balance is tracked by dual-stacking-v2 for
+;;      Dual Stacking rewards distribution.
 ;;
-;; Dual Stacking integration:
-;;    The vault contract address is enrolled via `enroll-defi` with:
-;;       tracking-address  = this contract
-;;       rewarded-address  = this contract  (rewards land here)
-;;       stacking-address  = none           (whitelisted  auto max boost)
-;;    When `distribute-rewards` fires in the DS contract, sBTC lands here.
-;;    Anyone can call `distribute-ds-rewards` on this contract to fan out
-;;     those rewards proportionally to depositors.
-;; 
+;; Dual Stacking Integration:
+;;    The vault is enrolled in dual-stacking-v2 as a DeFi protocol.
+;;    Enrollment is done via governance proposal or direct deployer call:
+;;      contract-call? dual-stacking enroll <vault-address> <vault-address> none
+;;
+;;    The vault's sBTC balance is snapshotted each cycle by DS.
+;;    When rewards arrive, anyone can call distribute-ds-rewards to fan out.
+;;
 
-;;  Error codes 
+;;  Error codes
 (define-constant ERR-UNAUTHORIZED        (err u3000))
 (define-constant ERR-INSUFFICIENT-FUNDS  (err u3001))
 (define-constant ERR-ZERO-AMOUNT         (err u3002))
@@ -29,15 +28,15 @@
 (define-constant ERR-NOTHING-TO-CLAIM    (err u3005))
 (define-constant ERR-OVERFLOW            (err u3006))
 
-;;  Precision 
+;;  Precision
 ;; We track reward-per-share with 18 decimal places to minimize rounding loss.
 (define-constant PRECISION u1000000000000000000) ;; 10^18
 
-;;  sBTC contract 
+;;  sBTC contract
 ;; Mainnet sBTC token contract (SIP-010 fungible token).
-(define-constant SBTC-TOKEN .sbtc-token)
+(define-constant SBTC-TOKEN 'SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token)
 
-;;  State 
+;;  State
 
 ;; Total sBTC held as collateral across all open positions.
 (define-data-var total-collateral uint u0)
@@ -52,7 +51,7 @@
 ;; Emergency pause flag set by governance proposal only.
 (define-data-var vault-paused bool false)
 
-;;  Per-depositor state 
+;;  Per-depositor state
 ;; Each trader who posts collateral has an entry here.
 (define-map deposits
   principal  ;; trader
@@ -63,7 +62,7 @@
   }
 )
 
-;;  Authorization 
+;;  Authorization
 
 (define-private (only-engine)
   (ok (asserts!
@@ -75,7 +74,7 @@
   (ok (asserts! (not (var-get vault-paused)) ERR-VAULT-LOCKED))
 )
 
-;;  Internal reward accounting 
+;;  Internal reward accounting
 
 ;; Harvest pending rewards for a depositor BEFORE any balance change.
 ;; This must be called at the start of every state-changing function.
@@ -92,12 +91,12 @@
           reward-debt:     (var-get reward-per-share)
         }))
       )
-    ;; No deposit entry nothing to harvest.
+    ;; No deposit entry - nothing to harvest.
     true
   )
 )
 
-;;  Collateral deposit (called by perpetual-engine) 
+;;  Collateral deposit (called by perpetual-engine)
 
 ;; Locks `amount` sBTC as collateral for `trader`.
 ;; perpetual-engine must have already transferred the sBTC to this contract.
@@ -131,10 +130,9 @@
   )
 )
 
-;;  Collateral release (called by perpetual-engine on close/liquidation) 
+;;  Collateral release (called by perpetual-engine on close/liquidation)
 
-;; Releases `amount` sBTC back toward `recipient` (usually the trader or
-;; liquidation engine).  Does NOT transfer perpetual-engine pulls.
+;; Releases `amount` sBTC back toward `recipient`.
 (define-public (release-collateral (trader principal) (amount uint) (recipient principal))
   (begin
     (try! (only-engine))
@@ -166,25 +164,28 @@
   )
 )
 
-;;  DS Reward distribution (permissionless) 
+;;  DS Reward distribution (permissionless)
 
-;; When the Dual Stacking contract calls `distribute-rewards`, sBTC lands in
-;; this contract.  Anyone can call this function to:
-;;   1. Read the new sBTC balance vs the last known collateral total.
-;;   2. Distribute the surplus as reward-per-share across all depositors.
+;; When the Dual Stacking contract distributes rewards, sBTC lands in this vault.
+;; Anyone can call this function to distribute rewards proportionally.
+;;
+;; NOTE: In production, rewards arrive via direct sBTC transfer from dual-stacking.
+;; This function calculates how much new sBTC has arrived vs locked collateral
+;; and increases the reward-per-share accordingly.
 (define-public (distribute-ds-rewards)
   (begin
     (try! (not-paused))
     (let (
-      (vault-balance (unwrap-panic (contract-call? SBTC-TOKEN get-balance  tx-sender)))
+      ;; Get actual sBTC balance of this contract
+      (vault-balance (unwrap-panic (contract-call? SBTC-TOKEN get-balance tx-sender)))
       (locked        (var-get total-collateral))
-      ;; Any sBTC above locked collateral = DS rewards that have landed.
+      ;; Any sBTC above locked collateral = DS rewards that have landed
       (new-rewards   (if (> vault-balance locked) (- vault-balance locked) u0))
     )
       (asserts! (> new-rewards u0) ERR-NOTHING-TO-CLAIM)
       (asserts! (> locked u0) ERR-NO-DEPOSIT)
 
-      ;; Increase reward-per-share.
+      ;; Increase reward-per-share proportionally
       (var-set reward-per-share
         (+ (var-get reward-per-share)
            (/ (* new-rewards PRECISION) locked)))
@@ -212,8 +213,7 @@
       (let ((reward (get pending-rewards entry)))
         (asserts! (> reward u0) ERR-NOTHING-TO-CLAIM)
         (map-set deposits tx-sender (merge entry { pending-rewards: u0 }))
-        (try! (
-          contract-call? SBTC-TOKEN transfer reward tx-sender tx-sender none))
+        (try! (contract-call? SBTC-TOKEN transfer reward tx-sender tx-sender none))
         (print {
           event:  "ds-reward-claimed",
           trader: tx-sender,
@@ -225,7 +225,7 @@
   )
 )
 
-;;  Emergency pause (governance proposal only) 
+;;  Emergency pause (governance proposal only)
 
 (define-public (set-paused (paused bool))
   (begin

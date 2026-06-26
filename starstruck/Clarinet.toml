@@ -1,6 +1,6 @@
 [project]
 name = "starstruck"
-description = ""
+description = "StarStacks Perpetual Futures DEX"
 authors = []
 telemetry = true
 cache_dir = "./.cache"
@@ -8,17 +8,20 @@ cache_dir = "./.cache"
 [[project.requirements]]
 contract_id = "SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard"
 
-# [contracts.counter]
-# path = "contracts/counter.clar"
-# epoch = "latest"
+[[project.requirements]]
+contract_id = "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.pyth-oracle-v4"
 
-# Check-checker settings:
-# trusted_sender: if true, inputs are trusted after tx_sender has been checked.
-# trusted_caller: if true, inputs are trusted after contract-caller has been checked.
-# callee_filter: if true, untrusted data may be passed into a private function without a
-# warning, if it gets checked inside. This check will also propagate up to the
-# caller.
-# More informations: https://www.hiro.so/blog/new-safety-checks-in-clarinet
+[[project.requirements]]
+contract_id = "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.pyth-storage-v4"
+
+[[project.requirements]]
+contract_id = "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.pyth-pnau-decoder-v3"
+
+[[project.requirements]]
+contract_id = "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y.wormhole-core-v4"
+
+[[project.requirements]]
+contract_id = "SP1HFCRKEJ8BYW4D0E3FAWHFDX8A25PPAA83HWWZ9.dual-stacking-v2_0_2"
 
 [repl.analysis]
 passes = ["check_checker"]
@@ -26,8 +29,8 @@ check_checker = { trusted_sender = false, trusted_caller = false, callee_filter 
 
 [contracts]
 
-[contracts.starstruck-core]
-path = "contracts/starstruck-core.clar"
+[contracts.starstacks-core]
+path = "contracts/starstacks-core.clar"
 clarity_version = 5
 epoch = "latest"
 
@@ -43,11 +46,6 @@ epoch = "latest"
 
 [contracts.collateral-vault]
 path = "contracts/collateral-vault.clar"
-clarity_version = 5
-epoch = "latest"
-
-[contracts.starstacks-core]
-path = "contracts/starstacks-core.clar"
 clarity_version = 5
 epoch = "latest"
 
