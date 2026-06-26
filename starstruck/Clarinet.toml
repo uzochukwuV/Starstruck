@@ -1,0 +1,77 @@
+[project]
+name = "starstruck"
+description = ""
+authors = []
+telemetry = true
+cache_dir = "./.cache"
+
+[[project.requirements]]
+contract_id = "SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-trait-ft-standard"
+
+# [contracts.counter]
+# path = "contracts/counter.clar"
+# epoch = "latest"
+
+# Check-checker settings:
+# trusted_sender: if true, inputs are trusted after tx_sender has been checked.
+# trusted_caller: if true, inputs are trusted after contract-caller has been checked.
+# callee_filter: if true, untrusted data may be passed into a private function without a
+# warning, if it gets checked inside. This check will also propagate up to the
+# caller.
+# More informations: https://www.hiro.so/blog/new-safety-checks-in-clarinet
+
+[repl.analysis]
+passes = ["check_checker"]
+check_checker = { trusted_sender = false, trusted_caller = false, callee_filter = false }
+
+[contracts]
+
+[contracts.starstruck-core]
+path = "contracts/starstruck-core.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.proposal-trait]
+path = "contracts/proposal-trait.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.extension-trait]
+path = "contracts/extension-trait.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.collateral-vault]
+path = "contracts/collateral-vault.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.starstacks-core]
+path = "contracts/starstacks-core.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.sbtc-token]
+path = "contracts/sbtc-token.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.liquidation-engine]
+path = "contracts/liquidation-engine.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.perpetual-engine]
+path = "contracts/perpetual-engine.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.oracle-adapter]
+path = "contracts/oracle-adapter.clar"
+clarity_version = 5
+epoch = "latest"
+
+[contracts.sbtc-dex]
+path = "contracts/sbtc-dex.clar"
+clarity_version = 5
+epoch = "latest"
