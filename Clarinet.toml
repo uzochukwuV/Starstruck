@@ -1,0 +1,84 @@
+[project]
+name = "starstacks"
+description = "StarStacks Perpetual Futures DEX on Stacks — hedges net directional imbalance using sBTC and Pyth oracle pricing"
+authors = ["StarStacks Team"]
+telemetry = false
+cache_dir = "./.cache"
+
+[contracts.proposal-trait]
+path = "governance/proposal-trait.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.extension-trait]
+path = "governance/extension-trait.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.starstacks-core]
+path = "starstacks-core.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.oracle-adapter]
+path = "oracle-adapter.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.collateral-vault]
+path = "collateral-vault.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.sbtc-dex]
+path = "sbtc-dex.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.perpetual-engine]
+path = "perpetual-engine.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.liquidation-engine]
+path = "liquidation-engine.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.proposal-update-oracle-staleness]
+path = "governance/proposal-update-oracle-staleness.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.proposal-update-liquidation-params]
+path = "governance/proposal-update-liquidation-params.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.proposal-emergency-pause]
+path = "governance/proposal-emergency-pause.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.proposal-upgrade-engine]
+path = "governance/proposal-upgrade-engine.clar"
+clarity_version = 3
+epoch = "3.0"
+
+[contracts.starstruck-core]
+path = "contracts/starstruck-core.clar"
+clarity_version = 5
+epoch = "latest"
+
+# ── Deployment order ─────────────────────────────────────────────────────────
+# Contracts MUST be deployed in this order (dependency resolution):
+#   1. proposal-trait          (no deps)
+#   2. extension-trait         (no deps)
+#   3. starstacks-core         (uses traits)
+#   4. oracle-adapter          (calls starstacks-core)
+#   5. collateral-vault        (calls starstacks-core, sbtc-token)
+#   6. sbtc-dex                (calls starstacks-core)
+#   7. perpetual-engine        (calls oracle-adapter, collateral-vault, sbtc-dex, starstacks-core)
+#   8. liquidation-engine      (calls oracle-adapter, perpetual-engine, collateral-vault, starstacks-core)
+#   9. governance proposals    (call individual contracts; deployed as needed)
+#  10. starstacks-core.initialize(perpetual, dex, oracle, liquidation, vault)

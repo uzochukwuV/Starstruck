@@ -1,0 +1,25 @@
+[network]
+name = "devnet"
+deployment_fee_hours = 24
+
+[accounts.deployer]
+mnemonic = "twice kind fence tip vanish import flora remix screen family comfortable generate exit official native arcade commit steel smell mock agent team crucial swim"
+principal = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGTD0TK4P5FK"
+
+[accounts.node_1]
+mnemonic = "shadow diverse amount license affair example multifield manage annex helix minute exotic ordinary example drive key change audio lazy surface phone arrest deny learn"
+balance = 100_000_000_000_000
+principal = "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGTD0TK4P5FB"
+
+[accounts.funded]
+mnemonic = "grant rice online decide expert grace credit relief zebra wine evidence fetch basket subtitle crash tragic engine gravity swim alpha drip restore bundle write"
+balance = 100_000_000_000_000
+
+[devnet]
+stacks_node_rpc_port = 20443
+stacks_node_p2p_port = 20444
+bitcoin_node_rpc_port = 18443
+bitcoin_node_p2p_port = 18444
+bitcoin_node_rpc_username = "devnet"
+bitcoin_node_rpc_password = "devnet"
+enable_burn_proposals = true
